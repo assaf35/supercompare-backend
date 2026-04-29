@@ -7,22 +7,42 @@ const axios = require('axios');
 const { getDb } = require('../utils/database');
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+process.env.PUPPETEER_CACHE_DIR = '/opt/render/.cache/puppeteer';
 
 const BASE = 'https://url.publishedprices.co.il';
+
+// מצא את נתיב Chrome אוטומטית
+function getChromePath() {
+  const possiblePaths = [
+    '/opt/render/.cache/puppeteer/chrome/linux-127.0.6533.88/chrome-linux64/chrome',
+    '/opt/render/.cache/puppeteer/chrome/linux-131.0.6778.204/chrome-linux64/chrome',
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+  ].filter(Boolean);
+
+  const fs = require('fs');
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) return p;
+  }
+  return undefined; // puppeteer ימצא לבד
+}
 
 // ─── כניסה + שליפת קבצים ────────────────────────────────────────────────────
 async function getFilesViaPuppeteer(username) {
   console.log(`  🤖 ${username}...`);
 
+  const chromePath = getChromePath();
+  if (chromePath) console.log(`  🌐 Chrome: ${chromePath}`);
+
   const browser = await puppeteer.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--ignore-certificate-errors']
+    executablePath: chromePath,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--ignore-certificate-errors',
+           '--disable-dev-shm-usage', '--disable-gpu']
   });
 
   try {
     const page = await browser.newPage();
 
-    // תפוס את תגובת dir
     let capturedFiles = [];
     page.on('response', async response => {
       if (response.url().includes('/file/json/dir')) {
@@ -36,37 +56,30 @@ async function getFilesViaPuppeteer(username) {
       }
     });
 
-    // עבור לדף login
     await page.goto(`${BASE}/login`, { waitUntil: 'networkidle2', timeout: 30000 });
 
-    // חלץ csrftoken מה-form
     const csrftoken = await page.$eval(
       'input[name="csrftoken"]',
       el => el.value
     ).catch(() => '');
-    console.log(`  🛡️  csrftoken מהform: ${csrftoken.substring(0,25)}...`);
+    console.log(`  🛡️  csrftoken: ${csrftoken.substring(0,25)}...`);
 
-    // מלא username
     await page.type('#username', username);
 
-    // לחץ Sign in
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {}),
       page.click('#login-button')
     ]);
 
-    // המתן לטעינת דף /file
     await new Promise(r => setTimeout(r, 4000));
 
-    // קבל cookies
     const cookies = await page.cookies();
     const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
     const cftpSID = cookies.find(c => c.name === 'cftpSID')?.value || '';
     console.log(`  🔑 cftpSID: ${cftpSID.substring(0,25)}...`);
 
-    // אם עדיין לא תפסנו קבצים — נשלח בקשה ידנית עם ה-csrftoken הנכון
     if (capturedFiles.length === 0) {
-      console.log(`  📡 שולח בקשת dir עם csrftoken...`);
+      console.log(`  📡 שולח בקשת dir...`);
 
       const payload = [
         'sEcho=1', 'iColumns=5', 'sColumns=%2C%2C%2C%2C',
