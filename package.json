@@ -7,7 +7,7 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "update-prices": "node src/services/priceUpdater.js",
-    "postinstall": "npx puppeteer browsers install chrome"
+    "postinstall": "echo skip"
   },
   "dependencies": {
     "express": "^4.18.2",
