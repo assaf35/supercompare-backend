@@ -22,6 +22,11 @@ const DB_PATH = path.join(__dirname, '../data/supercompare.db');
 
 // ─── Download DB from GitHub ──────────────────────────────────────────────────
 async function downloadDbFromGitHub() {
+  if (!GITHUB_TOKEN) {
+    console.log('⚠️  No GITHUB_TOKEN set');
+    return false;
+  }
+
   return new Promise((resolve) => {
     console.log('⬇️  Downloading DB from GitHub...');
 
@@ -47,7 +52,7 @@ async function downloadDbFromGitHub() {
             console.log(`✅ DB downloaded! (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
             resolve(true);
           } else {
-            console.log('⚠️  No DB file found on GitHub');
+            console.log('⚠️  No DB on GitHub:', json.message);
             resolve(false);
           }
         } catch(e) {
@@ -58,7 +63,7 @@ async function downloadDbFromGitHub() {
     });
 
     req.on('error', (e) => {
-      console.error('❌ GitHub request error:', e.message);
+      console.error('❌ GitHub error:', e.message);
       resolve(false);
     });
 
@@ -85,25 +90,34 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// עדכון מחירים כל יום ב-03:00
 cron.schedule('0 3 * * *', async () => {
-  console.log('⏰ Cron: עדכון יומי...');
+  console.log('⏰ Cron: daily update...');
   await updateAllPrices();
 }, { timezone: 'Asia/Jerusalem' });
 
-app.listen(PORT, async () => {
+// ─── Start server FIRST, then download DB in background ──────────────────────
+app.listen(PORT, () => {
   console.log(`🚀 SuperCompare Backend running on port ${PORT}`);
 
-  // Try to download DB from GitHub first
-  const dbExists = fs.existsSync(DB_PATH);
-  if (!dbExists) {
-    const downloaded = await downloadDbFromGitHub();
-    if (!downloaded) {
-      console.log('📦 No DB available — will start empty');
-    }
-  }
+  // Download DB in background — don't block startup
+  setTimeout(async () => {
+    const dbExists = fs.existsSync(DB_PATH);
 
-  const db = await getDb();
-  const count = db.exec('SELECT COUNT(*) FROM prices')[0]?.values[0]?.[0] || 0;
-  console.log(`✅ ${count} prices in database`);
+    if (!dbExists) {
+      console.log('📦 No local DB — downloading from GitHub...');
+      await downloadDbFromGitHub();
+    } else {
+      console.log('✅ Local DB exists, checking GitHub for updates...');
+      await downloadDbFromGitHub();
+    }
+
+    const db = await getDb();
+    const count = db.exec('SELECT COUNT(*) FROM prices')[0]?.values[0]?.[0] || 0;
+    console.log(`✅ ${count} prices in database`);
+
+    if (count === 0) {
+      console.log('📦 Empty DB — starting price update...');
+      updateAllPrices().catch(console.error);
+    }
+  }, 2000); // wait 2 seconds after server starts
 });
