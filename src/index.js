@@ -16,7 +16,7 @@ const productsRouter = require('./routes/products');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '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';
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
 const GITHUB_REPO = 'assaf35/supercompare-data';
 const DB_PATH = path.join(__dirname, '../data/supercompare.db');
 
